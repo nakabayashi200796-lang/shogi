@@ -356,14 +356,14 @@ body[data-tier="5"] .frame, body[data-tier="6"] .frame, body[data-tier="7"] .fra
 .lesson.land .side > * { width: 100%; }
 
 /* PC（大きい横長の画面）：盤を左、右側に「相手の駒台・案内・自分の駒台」を上から並べる */
-.pc .frame { order: 0; }
-.pc .side { order: 1; height: calc(var(--cw) * 10.54); justify-content: flex-start; align-self: center; }
-.pc .side .dai.top { order: 0; }
-.pc .side .bar { order: 1; margin-top: auto; }
-.pc .side .statusrow, .pc .side .progress, .pc .side .panel, .pc .side .ltext { order: 2; }
-.pc .side .lbtns { order: 3; }
-.pc .side .dai.bot { order: 4; margin-top: auto; }
-.lesson.pc .side { justify-content: flex-start; }
+.desk .frame { order: 0; }
+.desk .side { order: 1; height: calc(var(--cw) * 10.54); justify-content: flex-start; align-self: center; }
+.desk .side .dai.top { order: 0; }
+.desk .side .bar { order: 1; margin-top: auto; }
+.desk .side .statusrow, .desk .side .progress, .desk .side .panel, .desk .side .ltext { order: 2; }
+.desk .side .lbtns { order: 3; }
+.desk .side .dai.bot { order: 4; margin-top: auto; }
+.lesson.desk .side { justify-content: flex-start; }
 
 /* 持ち時間の時計 */
 .statusrow { display: flex; align-items: center; justify-content: center; gap: 10px; }
@@ -534,7 +534,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   del(k) { try { localStorage.removeItem(k); } catch (e) {} },
 };
-const settings = Object.assign({ sound: true, hints: true }, store.get(K_SET, {}));
+const settings = Object.assign({ sound: true, hints: true, time: 'none' }, store.get(K_SET, {}));
 let records = store.get(K_REC, {});
 function saveSettings() { store.set(K_SET, settings); }
 
@@ -572,6 +572,7 @@ const SFX = {
     click(a, t, 5200, 2.5, 0.35, 0.02);
     tone(a, 260, t, 0.07, 'sine', strong ? 0.45 : 0.32, 120);
   },
+  tick() { const a = audio(); if (!a) return; const t = a.currentTime; tone(a, 1320, t, 0.08, 'sine', 0.22); },
   pick() { const a = audio(); if (!a) return; const t = a.currentTime; click(a, t, 3800, 3, 0.18, 0.02); },
   check() { const a = audio(); if (!a) return; const t = a.currentTime; tone(a, 660, t + 0.05, 0.16, 'triangle', 0.22); tone(a, 880, t + 0.17, 0.3, 'triangle', 0.22); },
   win() { const a = audio(); if (!a) return; const t = a.currentTime; [523, 659, 784, 1047].forEach((f, i) => tone(a, f, t + i * 0.12, i === 3 ? 0.7 : 0.22, 'triangle', 0.3)); tone(a, 1568, t + 0.48, 0.6, 'sine', 0.08); },
@@ -779,7 +780,7 @@ function fit() {
     el.style.setProperty('--ch', (c * 1.1).toFixed(2) + 'px');
     el.style.setProperty('--fw', Math.floor(c * FW) + 'px');
     el.classList.toggle('land', land);
-    el.classList.toggle('pc', pc);
+    el.classList.toggle('desk', pc);
     // PCでは盤のマスが大きいので、駒台の駒は小さめにそろえる
     el.querySelectorAll('.dai').forEach(d => {
       if (pc) { const h = Math.min(c, 58); d.style.setProperty('--cw', h + 'px'); d.style.setProperty('--ch', (h * 1.1).toFixed(2) + 'px'); }
@@ -825,7 +826,7 @@ const analyzeAll = (moves) => ask({ cmd: 'analyze', moves, ms: 240 }, () => {
 });
 
 /* ---------- 対局 ---------- */
-const G = { lv: 1, humanSente: true, moves: [], kifu: [], busy: false, over: false, token: 0, sel: null, legal: [], view: null };
+const G = { lv: 1, humanSente: true, moves: [], kifu: [], busy: false, over: false, token: 0, sel: null, legal: [], view: null, tm: { mode: 'none', remain: 0, t0: 0 } };
 const gv = new BoardView($('#gFrame'), $('#gDaiTop'), $('#gDaiBot'), onGameSquare, onGameHand);
 const humanSide = () => G.humanSente ? 0 : 1;
 const toMove = () => G.moves.length % 2;
@@ -834,6 +835,43 @@ const isHumanTurn = () => toMove() === humanSide();
 function setStatus(html, cls) { const s = $('#status'); s.innerHTML = html; s.className = 'status' + (cls ? ' ' + cls : ''); }
 function lastKf() { return G.kifu.length ? `<span class="kf">${G.kifu[G.kifu.length - 1]}</span>` : ''; }
 function kingSqOf(v, s) { for (let u = 0; u < 81; u++) if (v.b[u] === (8 | (s ? 16 : 0))) return u; return -1; }
+
+/* ---------- 持ち時間（あなたにだけ付く。AIには付かない） ---------- */
+const TIME = { none: { label: 'なし' }, kire: { label: '10分切れ負け', ms: 600000 }, byo: { label: '1手30秒', ms: 30000 } };
+let clockTimer = null, lastBeep = -1;
+function curRemain() { const t = G.tm; return t.t0 ? t.remain - (performance.now() - t.t0) : t.remain; }
+function clockStart() {
+  if (G.tm.mode === 'none' || G.tm.t0) return;
+  if (G.tm.mode === 'byo') G.tm.remain = TIME.byo.ms;
+  G.tm.t0 = performance.now(); lastBeep = -1;
+  clockTimer = setInterval(clockTick, 200);
+  paintClock();
+}
+function clockStop() {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+  if (G.tm.t0) { G.tm.remain = Math.max(0, curRemain()); G.tm.t0 = 0; }
+  paintClock();
+}
+function clockTick() {
+  const r = curRemain();
+  paintClock();
+  const sec = Math.ceil(r / 1000);
+  if (sec <= 5 && sec >= 1 && sec !== lastBeep) { lastBeep = sec; SFX.tick(); }
+  if (r <= 0 && !G.over) {
+    clockStop(); G.tm.remain = 0; paintClock();
+    $('#layer').innerHTML = '';
+    G.token++; gameOver(null, '時間切れ');
+  }
+}
+function paintClock() {
+  const el = $('#clock');
+  if (G.tm.mode === 'none') { el.hidden = true; return; }
+  el.hidden = false;
+  const r = Math.max(0, curRemain()), sec = Math.ceil(r / 1000);
+  el.textContent = G.tm.mode === 'kire' ? `⏱ ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}` : `⏱ ${sec}秒`;
+  el.classList.toggle('dim', !G.tm.t0);
+  el.classList.toggle('low', !!G.tm.t0 && (G.tm.mode === 'byo' ? sec <= 10 : sec <= 60));
+}
 
 function paintGame(anim) {
   E.setup(G.moves);
@@ -861,12 +899,18 @@ function showScreen(id) {
 
 function startGame(lv, saved) {
   G.token++;
+  clockStop();
   G.lv = lv; G.over = false; G.busy = false; G.sel = null;
   if (saved) {
     G.humanSente = saved.humanSente; G.moves = saved.moves.slice();
+    const t = saved.tm || {};
+    G.tm = { mode: TIME[t.mode] ? t.mode : 'none', remain: t.remain > 0 ? t.remain : (TIME[t.mode] && TIME[t.mode].ms) || 0, t0: 0 };
   } else {
     G.humanSente = Math.random() < 0.5; G.moves = [];
+    const mode = TIME[settings.time] ? settings.time : 'none';
+    G.tm = { mode, remain: TIME[mode].ms || 0, t0: 0 };
   }
+  paintClock();
   // 棋譜の文字を作り直す
   G.kifu = [];
   E.setup([]);
@@ -898,7 +942,7 @@ function turnLoop() {
   const st = E.status(MAX_MOVES);
   if (st.over) { gameOver(st); return; }
   paintGame();
-  if (isHumanTurn()) { setStatus(lastKf() + (st.check ? '王手！ ' : '') + 'あなたの番です'); return; }
+  if (isHumanTurn()) { setStatus(lastKf() + (st.check ? '王手！ ' : '') + 'あなたの番です'); clockStart(); return; }
   aiTurn();
 }
 
@@ -918,6 +962,8 @@ async function aiTurn() {
 }
 
 function playMove(usi) {
+  if (G.over) return;
+  if (isHumanTurn()) clockStop();
   const tk = G.token;
   const prevTo = G.moves.length ? E.decode(G.moves[G.moves.length - 1]).to : -1;
   E.setup(G.moves);
@@ -977,10 +1023,13 @@ function choose(cands, done) {
   });
 }
 
-function gameOver(st, resigned) {
+// lost：こちらの負けが決まった理由（投了・時間切れ）。st：盤の上で決まった終わり
+function gameOver(st, lost) {
+  const resigned = !!lost;
+  clockStop();
   G.over = true; G.busy = false; G.sel = null;
   const res = resigned ? 'l' : st.winner === -1 ? 'd' : st.winner === humanSide() ? 'w' : 'l';
-  const why = resigned ? '投了' : st.why;
+  const why = resigned ? lost : st.why;
   const rec = records[G.lv] || { w: 0, l: 0, d: 0 };
   const firstCrown = res === 'w' && !rec.w;
   rec[res]++; records[G.lv] = rec; store.set(K_REC, records);
@@ -1043,7 +1092,7 @@ function recText(lv) {
 
 $('#quitBtn').addEventListener('click', () => {
   if (G.over) { goHome(); return; }
-  if (G.moves.length < 2) { G.token++; store.del(K_SAVE); goHome(); return; }
+  if (G.moves.length < 2) { G.token++; clockStop(); store.del(K_SAVE); goHome(); return; }
   const w = openSheet('<p class="q">この対局をどうしますか？</p><div class="col">' +
     '<button class="btn danger" data-a="resign">投了する（負けにして振り返る）</button>' +
     '<button class="btn" data-a="quit">やめる（成績に数えない）</button>' +
@@ -1051,8 +1100,8 @@ $('#quitBtn').addEventListener('click', () => {
   w.addEventListener('click', (ev) => {
     const a = ev.target.closest('[data-a]'); if (!a) return;
     w.remove();
-    if (a.dataset.a === 'quit') { G.token++; store.del(K_SAVE); goHome(); }
-    else if (a.dataset.a === 'resign') { G.token++; gameOver(null, true); }
+    if (a.dataset.a === 'quit') { if (G.over) return; G.token++; clockStop(); store.del(K_SAVE); goHome(); }
+    else if (a.dataset.a === 'resign') { if (G.over) return; G.token++; gameOver(null, '投了'); }
   });
 });
 
@@ -1080,10 +1129,18 @@ function renderHome() {
   const box = $('#resume');
   if (sv && sv.moves && sv.moves.length && LV[sv.lv]) {
     box.hidden = false;
-    $('#resumeText').innerHTML = `<b></b>との対局が途中です（${sv.moves.length}手まで進んでいます）`;
+    const tmt = sv.tm && TIME[sv.tm.mode] && sv.tm.mode !== 'none' ? `・持ち時間 ${TIME[sv.tm.mode].label}` : '';
+    $('#resumeText').innerHTML = `<b></b>との対局が途中です（${sv.moves.length}手まで進んでいます${tmt}）`;
     $('#resumeText b').textContent = LV[sv.lv].name;
   } else box.hidden = true;
   $('#hintSwitch').setAttribute('aria-checked', String(settings.hints));
+  const seg = $('#timeSeg'); seg.innerHTML = '';
+  for (const k of ['none', 'kire', 'byo']) {
+    const b = document.createElement('button');
+    b.textContent = TIME[k].label; b.setAttribute('aria-pressed', String(settings.time === k));
+    b.addEventListener('click', () => { settings.time = k; saveSettings(); renderHome(); });
+    seg.appendChild(b);
+  }
 }
 function recHtml(lv) {
   const r = records[lv];
@@ -1532,13 +1589,16 @@ function lessonBack() {
 }
 $('#lessonBack').addEventListener('click', lessonBack);
 
+// 途中で閉じたときも、残り時間を保存しておく
+window.addEventListener('pagehide', () => { if (!G.over && G.moves && !$('#game').hidden) saveGame(); });
+
 /* ---------- 起動 ---------- */
 paintSound();
 goHome();
 fit();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(() => {});
 // 検品用
-window.__shogi = { G, R, L, E, startGame, playMove, openLesson, openReview };
+window.__shogi = { G, R, L, E, startGame, playMove, openLesson, openReview, fit };
 </script>
 </body>
 </html>
