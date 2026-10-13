@@ -157,7 +157,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .game:not(.land) .dai.top { order: 1; }
 .game:not(.land) .frame { order: 2; }
 .game:not(.land) .dai.bot { order: 3; }
-.game:not(.land) .status { order: 4; margin-bottom: auto; }
+.game:not(.land) .statusrow { order: 4; margin-bottom: auto; }
 .opp { text-align: center; line-height: 1.1; }
 .opp .t { font-size: .72rem; color: var(--muted); }
 .opp .n { font-family: var(--mincho); font-weight: 800; font-size: 1.35rem; letter-spacing: .1em; color: var(--accent); text-shadow: 0 0 14px var(--glow); }
@@ -354,6 +354,30 @@ body[data-tier="5"] .frame, body[data-tier="6"] .frame, body[data-tier="7"] .fra
 .lesson.land { flex-direction: row; justify-content: center; gap: 14px; }
 .lesson.land .side { width: min(360px, 42vw); align-self: stretch; justify-content: center; }
 .lesson.land .side > * { width: 100%; }
+
+/* PC（大きい横長の画面）：盤を左、右側に「相手の駒台・案内・自分の駒台」を上から並べる */
+.pc .frame { order: 0; }
+.pc .side { order: 1; height: calc(var(--cw) * 10.54); justify-content: flex-start; align-self: center; }
+.pc .side .dai.top { order: 0; }
+.pc .side .bar { order: 1; margin-top: auto; }
+.pc .side .statusrow, .pc .side .progress, .pc .side .panel, .pc .side .ltext { order: 2; }
+.pc .side .lbtns { order: 3; }
+.pc .side .dai.bot { order: 4; margin-top: auto; }
+.lesson.pc .side { justify-content: flex-start; }
+
+/* 持ち時間の時計 */
+.statusrow { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.statusrow .status { width: auto; flex: 0 1 auto; }
+.clock { flex-shrink: 0; padding: 2px 10px; border-radius: 99px; font-weight: 700; font-variant-numeric: tabular-nums; font-size: .95rem; background: rgba(0,0,0,.35); border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); color: var(--text); }
+.clock.dim { opacity: .55; }
+.clock.low { color: #fff; background: #b3261e; border-color: #ff6b57; animation: lowp 1s steps(2) infinite; }
+@keyframes lowp { 50% { background: #7a140e; } }
+
+/* 持ち時間を選ぶボタン */
+.time-row { display: flex; align-items: center; gap: 10px; padding: 4px 4px 0; font-size: .9rem; color: var(--muted); }
+.time-row .seg { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; border-radius: 12px; background: rgba(0,0,0,.3); }
+.time-row .seg button { min-height: 36px; border-radius: 9px; font-size: .82rem; font-weight: 700; color: var(--muted); }
+.time-row .seg button[aria-pressed="true"] { background: var(--accent); color: #1b1406; }
 .ltext { min-height: 6.8em; padding: 10px 14px; border-radius: 12px; background: rgba(0,0,0,.32); font-size: .96rem; line-height: 1.7; }
 .ltext .ok { color: #7fe0a4; font-weight: 700; }
 .ltext .ng { color: #ff8a7a; font-weight: 700; }
@@ -385,6 +409,10 @@ body[data-tier="5"] .frame, body[data-tier="6"] .frame, body[data-tier="7"] .fra
       </div>
     </div>
     <div class="ladder" id="ladder"></div>
+    <div class="time-row">
+      <span>持ち時間</span>
+      <div class="seg" id="timeSeg" role="group" aria-label="持ち時間"></div>
+    </div>
     <div class="switch-row">
       <span id="hintLabel">動ける場所に点を出す</span>
       <button class="switch" id="hintSwitch" role="switch" aria-labelledby="hintLabel" aria-checked="true"></button>
@@ -405,7 +433,7 @@ body[data-tier="5"] .frame, body[data-tier="6"] .frame, body[data-tier="7"] .fra
       </div>
       <div class="dai top wide" id="gDaiTop"></div>
       <div class="dai bot wide" id="gDaiBot"></div>
-      <div class="status wide" id="status"></div>
+      <div class="statusrow wide"><div class="status" id="status"></div><span class="clock" id="clock" hidden></span></div>
     </div>
     <div class="frame" id="gFrame"></div>
   </div>
@@ -727,6 +755,8 @@ const FW = 9.64, FH = 10.54, DAI = 1.2;
 function fit() {
   const W = window.innerWidth, H = window.innerHeight;
   const land = W > H * 1.1;
+  // PC：大きな横長の画面（スマホの横向きは高さが足りないので入らない）
+  const pc = land && W >= 960 && H >= 560;
   const sv = safe('top') + safe('bottom'), sh = safe('left') + safe('right');
   let cw, lcw, rcw;
   if (land) {
@@ -749,6 +779,12 @@ function fit() {
     el.style.setProperty('--ch', (c * 1.1).toFixed(2) + 'px');
     el.style.setProperty('--fw', Math.floor(c * FW) + 'px');
     el.classList.toggle('land', land);
+    el.classList.toggle('pc', pc);
+    // PCでは盤のマスが大きいので、駒台の駒は小さめにそろえる
+    el.querySelectorAll('.dai').forEach(d => {
+      if (pc) { const h = Math.min(c, 58); d.style.setProperty('--cw', h + 'px'); d.style.setProperty('--ch', (h * 1.1).toFixed(2) + 'px'); }
+      else { d.style.removeProperty('--cw'); d.style.removeProperty('--ch'); }
+    });
   };
   set('#gameBox', cw); set('#lessonBox', lcw); set('#reviewBox', Math.max(rcw, 26));
   if (!$('#review').hidden) drawGraph();
@@ -795,7 +831,7 @@ const humanSide = () => G.humanSente ? 0 : 1;
 const toMove = () => G.moves.length % 2;
 const isHumanTurn = () => toMove() === humanSide();
 
-function setStatus(html, cls) { const s = $('#status'); s.innerHTML = html; s.className = 'status wide' + (cls ? ' ' + cls : ''); }
+function setStatus(html, cls) { const s = $('#status'); s.innerHTML = html; s.className = 'status' + (cls ? ' ' + cls : ''); }
 function lastKf() { return G.kifu.length ? `<span class="kf">${G.kifu[G.kifu.length - 1]}</span>` : ''; }
 function kingSqOf(v, s) { for (let u = 0; u < 81; u++) if (v.b[u] === (8 | (s ? 16 : 0))) return u; return -1; }
 
@@ -815,7 +851,7 @@ function paintGame(anim) {
 
 function saveGame() {
   if (G.over) { store.del(K_SAVE); return; }
-  store.set(K_SAVE, { lv: G.lv, humanSente: G.humanSente, moves: G.moves });
+  store.set(K_SAVE, { lv: G.lv, humanSente: G.humanSente, moves: G.moves, tm: { mode: G.tm.mode, remain: Math.round(curRemain()) } });
 }
 
 function showScreen(id) {
