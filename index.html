@@ -542,6 +542,7 @@ function saveSettings() { store.set(K_SET, settings); }
 let ac = null;
 function audio() {
   if (!settings.sound) return null;
+  navigator.audioSession && (navigator.audioSession.type = 'playback');   // iPhone の消音モードでもスピーカーから鳴らす
   if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
   if (ac.state === 'suspended') ac.resume();
   return ac;
