@@ -1117,9 +1117,8 @@ function renderHome() {
     const r = records[lv];
     const b = document.createElement('button');
     b.className = 'rung'; b.dataset.lv = lv;
-    b.innerHTML = `<span class="lv">${lv}</span><span><span class="nm"></span><span class="ds"></span></span><span class="rec">${r && r.w ? CROWN : ''}<span>${recHtml(lv)}</span></span>`;
+    b.innerHTML = `<span class="lv">${lv}</span><span><span class="nm"></span></span><span class="rec">${r && r.w ? CROWN : ''}<span>${recHtml(lv)}</span></span>`;
     b.querySelector('.nm').textContent = LV[lv].name;
-    b.querySelector('.ds').textContent = LV[lv].ds;
     b.setAttribute('aria-label', `Lv${lv} ${LV[lv].name}と対戦する。${recText(lv)}`);
     b.addEventListener('click', () => { audio(); store.del(K_SAVE); startGame(lv); });
     lad.appendChild(b);
@@ -1343,7 +1342,7 @@ function courseEntry() {
   const n = LESSONS.filter(c => lessonDone[c.id]).length;
   const b = document.createElement('button');
   b.className = 'course-entry';
-  b.innerHTML = `${BOOK}<span><span class="nm">将棋講座</span><span class="ds">全${LESSONS.length}章。駒の動きから詰みまで、盤の問題を解く</span></span><span class="rec">${n ? n + '章 済' : 'はじめから'}</span>`;
+  b.innerHTML = `${BOOK}<span><span class="nm">将棋講座</span></span><span class="rec">${n ? n + '章 済' : 'はじめから'}</span>`;
   b.addEventListener('click', () => { audio(); openCourse(); });
   return b;
 }
@@ -1353,9 +1352,8 @@ function openCourse() {
   const box = $('#chapters'); box.innerHTML = '';
   for (const c of LESSONS) {
     const b = document.createElement('button'); b.className = 'chap';
-    b.innerHTML = `<span class="no">${c.id}</span><span><span class="nm"></span><span class="ds"></span></span>${lessonDone[c.id] ? '<span class="done">済</span>' : '<span></span>'}`;
+    b.innerHTML = `<span class="no">${c.id}</span><span><span class="nm"></span></span>${lessonDone[c.id] ? '<span class="done">済</span>' : '<span></span>'}`;
     b.querySelector('.nm').textContent = c.title;
-    b.querySelector('.ds').textContent = c.ds || '';
     b.addEventListener('click', () => { audio(); openLesson(c.id, 'course'); });
     box.appendChild(b);
   }
