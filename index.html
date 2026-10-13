@@ -539,11 +539,78 @@ let records = store.get(K_REC, {});
 function saveSettings() { store.set(K_SET, settings); }
 
 /* ---------- 音（その場で作る効果音） ---------- */
-let ac = null;
+let ac = null, master = null, voices = null;
+// 録音した効果音（se フォルダ。Kenney と Freesound の CC0 素材）。読めなかったときは今までの合成音で鳴らす
+const SE_FILES = { koma: 5 };
+const seRaw = {}, se = {}, seLast = {};
+for (const k in SE_FILES) seRaw[k] = Array.from({ length: SE_FILES[k] }, (_, i) =>
+  fetch(`se/${k}_${i + 1}.mp3`).then(r => r.ok ? r.arrayBuffer() : null).catch(() => null));
+function seDecode() {
+  for (const k in seRaw) Promise.all(seRaw[k])
+    .then(abs => Promise.all(abs.filter(Boolean).map(ab => new Promise(ok => ac.decodeAudioData(ab.slice(0), ok, () => ok(null))))))
+    .then(bs => { se[k] = bs.filter(Boolean); });
+}
+function hit(k, t, vol, rate) {   // 前回と違う録音を選び、高さと大きさを少しばらつかせて鳴らす
+  const list = se[k]; if (!list || !list.length) return false;
+  let i = Math.floor(Math.random() * list.length);
+  if (list.length > 1 && i === seLast[k]) i = (i + 1) % list.length;
+  seLast[k] = i;
+  const s = ac.createBufferSource(); s.buffer = list[i];
+  s.playbackRate.value = (rate || 1) * (1 + (Math.random() - 0.5) * 0.06);
+  const g = ac.createGain(); g.gain.value = vol * (0.85 + Math.random() * 0.3);
+  s.connect(g).connect(master); s.start(t);
+  return true;
+}
+// 鉄琴・マリンバのような「叩いて鳴る」音色と、小さな部屋の響き
+function makeVoices(ctx, master) {
+  const len = Math.floor(ac.sampleRate * 1.6), ir = ac.createBuffer(2, len, ac.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4); }
+  const verb = ac.createConvolver(); verb.buffer = ir;
+  const wet = ac.createGain(); wet.gain.value = 0.22; verb.connect(wet).connect(master);
+  // [倍音の比, 大きさ, 消えるまでの長さの割合]。木琴系は 1:4:10、鐘は 1:2.76:5.4:8.9 あたりに倍音が立つ
+  const KINDS = {
+    marimba: [[1, 1, 1], [3.93, 0.16, 0.28], [9.2, 0.04, 0.1]],
+    vibe: [[1, 1, 1], [4.0, 0.22, 0.45], [10.0, 0.05, 0.15]],
+    bell: [[1, 1, 1], [2.76, 0.32, 0.55], [5.4, 0.14, 0.3], [8.93, 0.05, 0.16]],
+  };
+  function note(t, f, dur, vol, kind) {
+    const det = 1 + (Math.random() - 0.5) * 0.004;   // 毎回ほんの少し音程をずらす（同じ音の繰り返しに聞こえないように）
+    const bus = ac.createGain(); bus.connect(master); bus.connect(verb);
+    for (const [r, g, d] of KINDS[kind || 'marimba']) {
+      const fr = f * r * det; if (fr > ac.sampleRate / 2.2) continue;
+      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = fr;
+      const e = ac.createGain(), end = t + dur * d;
+      e.gain.setValueAtTime(0.0001, t); e.gain.exponentialRampToValueAtTime(vol * g, t + 0.003);
+      e.gain.exponentialRampToValueAtTime(0.0001, end);
+      o.connect(e).connect(bus); o.start(t); o.stop(end + 0.02);
+    }
+  }
+  const C5 = 523.25, E5 = 659.25, G5 = 783.99, C6 = 1046.5;
+  return {
+    note,
+    win(t) {    // 上がっていくアルペジオ → 和音が鳴り残る
+      [C5, E5, G5, C6].forEach((f, i) => note(t + i * 0.1, f, 0.55, 0.32));
+      [C5, E5, G5].forEach(f => note(t + 0.42, f, 1.8, 0.13, 'vibe'));
+      note(t + 0.42, C6, 2.2, 0.16, 'bell'); note(t + 0.42, C6 * 2, 1.6, 0.05, 'bell');
+    },
+    lose(t) {   // 下がっていく、やわらかい木琴
+      [392, 349.23, 293.66].forEach((f, i) => { note(t + i * 0.3, f, 0.9, 0.3); note(t + i * 0.3, f / 2, 0.9, 0.16); });
+      note(t + 0.9, 196, 1.8, 0.3); note(t + 0.9, 392, 1.4, 0.08, 'vibe');
+    },
+    draw(t) { note(t, E5, 0.6, 0.25); note(t + 0.22, E5, 0.9, 0.25); },
+    tick(t) { note(t, 1318.5, 0.3, 0.09); note(t + 0.06, 1760, 0.35, 0.06); },
+    check(t) { note(t, E5, 0.5, 0.26, 'bell'); note(t + 0.12, 880, 0.8, 0.26, 'bell'); },
+    pass(t) { note(t, 392, 0.6, 0.26); note(t + 0.16, 293.66, 0.8, 0.26); },
+  };
+}
 function audio() {
   if (!settings.sound) return null;
   navigator.audioSession && (navigator.audioSession.type = 'playback');   // iPhone の消音モードでもスピーカーから鳴らす
-  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+  if (!ac) {
+    try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+    master = ac.createGain(); master.gain.value = 0.8; master.connect(ac.destination);
+    voices = makeVoices(ac, master); seDecode();
+  }
   if (ac.state === 'suspended') ac.resume();
   return ac;
 }
@@ -569,16 +636,17 @@ const SFX = {
   // 駒を盤に打ちつける「パチッ」
   place(strong) {
     const a = audio(); if (!a) return; const t = a.currentTime;
+    if (hit('koma', t, strong ? 1 : 0.75, strong ? 0.94 : 1)) return;
     click(a, t, 2100, 1.4, strong ? 1.3 : 1.0, 0.045);
     click(a, t, 5200, 2.5, 0.35, 0.02);
     tone(a, 260, t, 0.07, 'sine', strong ? 0.45 : 0.32, 120);
   },
   tick() { const a = audio(); if (!a) return; const t = a.currentTime; tone(a, 1320, t, 0.08, 'sine', 0.22); },
   pick() { const a = audio(); if (!a) return; const t = a.currentTime; click(a, t, 3800, 3, 0.18, 0.02); },
-  check() { const a = audio(); if (!a) return; const t = a.currentTime; tone(a, 660, t + 0.05, 0.16, 'triangle', 0.22); tone(a, 880, t + 0.17, 0.3, 'triangle', 0.22); },
-  win() { const a = audio(); if (!a) return; const t = a.currentTime; [523, 659, 784, 1047].forEach((f, i) => tone(a, f, t + i * 0.12, i === 3 ? 0.7 : 0.22, 'triangle', 0.3)); tone(a, 1568, t + 0.48, 0.6, 'sine', 0.08); },
-  lose() { const a = audio(); if (!a) return; const t = a.currentTime; [392, 349, 311, 262].forEach((f, i) => tone(a, f, t + i * 0.2, i === 3 ? 0.8 : 0.3, 'sine', 0.25)); },
-  draw() { const a = audio(); if (!a) return; const t = a.currentTime; tone(a, 440, t, 0.25, 'triangle', 0.25); tone(a, 440, t + 0.28, 0.4, 'triangle', 0.25); },
+  check() { const a = audio(); if (a) voices.check(a.currentTime + 0.05); },
+  win() { const a = audio(); if (a) voices.win(a.currentTime + 0.01); },
+  lose() { const a = audio(); if (a) voices.lose(a.currentTime + 0.01); },
+  draw() { const a = audio(); if (a) voices.draw(a.currentTime + 0.01); },
   heavy(god) {
     const a = audio(); if (!a) return; const t = a.currentTime;
     tone(a, 55, t, 2.4, 'sine', 0.7, 41);

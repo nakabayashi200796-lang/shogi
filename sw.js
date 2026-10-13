@@ -1,6 +1,7 @@
 /* 将棋 — 電波が無くても開けるようにするための小さな仕掛け */
-const V = "shogi-v1";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./engine.js", "./lessons.js", "./icon-32.png", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
+const V = "shogi-v2";
+const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./engine.js", "./lessons.js", "./icon-32.png", "./icon-180.png", "./icon-192.png", "./icon-512.png",
+               "./se/koma_1.mp3", "./se/koma_2.mp3", "./se/koma_3.mp3", "./se/koma_4.mp3", "./se/koma_5.mp3"];
 
 self.addEventListener("install", e => {
   self.skipWaiting();
