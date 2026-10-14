@@ -38,7 +38,8 @@
 body[data-tier="4"] { --bg1: #3a2410; --bg2: #0b0602; --frame1: #5a3519; --frame2: #2c170a; --frame3: #150a04; --accent: #d9b66e; }
 body[data-tier="5"] { --bg1: #0c2a4a; --bg2: #02060f; --frame1: #2b4057; --frame2: #121d2a; --frame3: #070b12; --dai1: #2b3c50; --dai2: #121b27; --accent: #8fd6ff; --glow: #2f9dff; --muted: #9db8cc; }
 body[data-tier="6"] { --bg1: #4a0b0d; --bg2: #080102; --frame1: #2a1212; --frame2: #120606; --frame3: #050202; --dai1: #3a1414; --dai2: #170707; --accent: #ff6b57; --glow: #ff2320; --muted: #c9a3a0; }
-body[data-tier="7"] { --bg1: #5a4410; --bg2: #0b0803; --frame1: #f6dc85; --frame2: #b98c2b; --frame3: #5c410c; --dai1: #8c6a22; --dai2: #4a360c; --accent: #ffe39a; --glow: #ffcf5a; --muted: #d6c79e; }
+body[data-tier="7"] { --bg1: #3a1258; --bg2: #07020c; --frame1: #3b2a4a; --frame2: #1a1022; --frame3: #08040c; --dai1: #3a2650; --dai2: #170c22; --accent: #d9b3ff; --glow: #a24dff; --muted: #bfa8d4; }
+body[data-tier="8"] { --bg1: #5a4410; --bg2: #0b0803; --frame1: #f6dc85; --frame2: #b98c2b; --frame3: #5c410c; --dai1: #8c6a22; --dai2: #4a360c; --accent: #ffe39a; --glow: #ffcf5a; --muted: #d6c79e; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -71,6 +72,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   background: #ff7a3c; box-shadow: 0 0 8px 2px rgba(255, 70, 30, .7);
   animation: rise linear infinite;
 }
+.fx .wisp.violet { background: radial-gradient(closest-side, rgba(170, 80, 255, .24), transparent); }
+.fx .bolt { position: absolute; inset: 0; background: radial-gradient(80% 60% at 50% 30%, rgba(210, 170, 255, .28), transparent 70%); opacity: 0; animation: bolt 7s linear infinite; }
+@keyframes bolt { 0%, 86%, 100% { opacity: 0; } 87% { opacity: 1; } 88% { opacity: .2; } 89.5% { opacity: .9; } 92% { opacity: 0; } }
 .fx .wisp {
   position: absolute; bottom: -20%; width: 40vmax; height: 60vmax; border-radius: 50%;
   background: radial-gradient(closest-side, rgba(60, 160, 255, .22), transparent);
@@ -120,8 +124,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .rung[data-lv="5"] .nm { color: #bfe6ff; text-shadow: 0 0 12px rgba(60, 160, 255, .6); }
 .rung[data-lv="6"] { border-color: rgba(255, 60, 50, .4); background: linear-gradient(90deg, rgba(70, 6, 8, .85), rgba(0,0,0,.25)); }
 .rung[data-lv="6"] .nm { color: #ffb3a8; text-shadow: 0 0 12px rgba(255, 40, 30, .7); }
-.rung[data-lv="7"] { min-height: 74px; border-color: rgba(255, 215, 110, .55); background: linear-gradient(100deg, rgba(110, 80, 15, .85), rgba(30, 20, 4, .7) 60%, rgba(0,0,0,.3)); }
-.rung[data-lv="7"] .nm { font-size: 1.7rem; color: #ffe7a6; text-shadow: 0 0 16px rgba(255, 200, 80, .8); letter-spacing: .3em; }
+.rung[data-lv="7"] { border-color: rgba(170, 90, 255, .45); background: linear-gradient(90deg, rgba(50, 14, 80, .85), rgba(0,0,0,.25)); }
+.rung[data-lv="7"] .nm { color: #e2c6ff; text-shadow: 0 0 12px rgba(160, 80, 255, .75); letter-spacing: .12em; }
+.rung[data-lv="8"] { min-height: 74px; border-color: rgba(255, 215, 110, .55); background: linear-gradient(100deg, rgba(110, 80, 15, .85), rgba(30, 20, 4, .7) 60%, rgba(0,0,0,.3)); }
+.rung[data-lv="8"] .nm { font-size: 1.7rem; color: #ffe7a6; text-shadow: 0 0 16px rgba(255, 200, 80, .8); letter-spacing: .3em; }
 .rung[data-lv="4"] .nm { color: #f1e2bd; }
 
 .resume {
@@ -196,7 +202,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
     linear-gradient(145deg, var(--frame1), var(--frame2) 55%, var(--frame3));
   box-shadow: 0 14px 34px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.25), inset 0 -2px 0 rgba(0,0,0,.4), 0 0 0 1px rgba(0,0,0,.4), 0 0 calc(var(--cw) * .8) color-mix(in srgb, var(--glow) 55%, transparent);
 }
-body[data-tier="5"] .frame, body[data-tier="6"] .frame, body[data-tier="7"] .frame { animation: aura 3.2s ease-in-out infinite alternate; }
+body[data-tier="5"] .frame, body[data-tier="6"] .frame, body[data-tier="7"] .frame, body[data-tier="8"] .frame { animation: aura 3.2s ease-in-out infinite alternate; }
 @keyframes aura {
   from { box-shadow: 0 14px 34px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.25), 0 0 0 1px rgba(0,0,0,.4), 0 0 calc(var(--cw) * .45) color-mix(in srgb, var(--glow) 45%, transparent); }
   to   { box-shadow: 0 14px 34px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.25), 0 0 0 1px rgba(0,0,0,.4), 0 0 calc(var(--cw) * 1.2) color-mix(in srgb, var(--glow) 75%, transparent); }
@@ -387,7 +393,7 @@ body[data-tier="5"] .frame, body[data-tier="6"] .frame, body[data-tier="7"] .fra
 @keyframes nope { 0%, 100% { background: transparent; } 40% { background: rgba(255, 70, 60, .35); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .fx .rays, .fx .ember, .fx .wisp, .frame { animation: none !important; }
+  .fx .rays, .fx .ember, .fx .wisp, .fx .bolt, .frame { animation: none !important; }
 }
 </style>
 </head>
@@ -523,7 +529,8 @@ const LV = [null,
   { name: '達人', ds: '3手先まで読み、駒の働きも考える' },
   { name: '竜王', ds: '深く読み、3手詰めを見逃さない' },
   { name: '鬼神', ds: 'さらに深く読み、5手詰めまで見抜く' },
-  { name: '神', ds: 'いちばん深く読み、7手詰めまで見抜く' },
+  { name: '覇王', ds: '深く読み、7手詰めまで見抜く' },
+  { name: '神', ds: 'やねうら王を手本に学んだ見立てで、いちばん深く読む' },
 ];
 const MAX_MOVES = 320;   // ここまで来たら引き分け
 
@@ -688,6 +695,12 @@ function setTier(lv) {
       fx.appendChild(e);
     }
   } else if (lv === 7) {
+    for (let i = 0; i < 3; i++) {
+      const w = document.createElement('span'); w.className = 'wisp violet';
+      w.style.left = (i * 38 - 12) + '%'; w.style.animationDuration = (3.5 + i) + 's'; fx.appendChild(w);
+    }
+    const f = document.createElement('div'); f.className = 'bolt'; fx.appendChild(f);
+  } else if (lv === 8) {
     const r = document.createElement('div'); r.className = 'rays'; fx.appendChild(r);
   }
 }
@@ -993,7 +1006,7 @@ function startGame(lv, saved) {
   const tk = G.token;
   let wait = 0;
   if (!saved) {
-    if (lv >= 6) { showIntro(LV[lv].name); SFX.heavy(lv === 7); wait = 2400; }
+    if (lv >= 6) { showIntro(LV[lv].name); SFX.heavy(lv === 8); wait = 2400; }
     setTimeout(() => {
       if (tk !== G.token) return;
       toast(G.humanSente ? 'あなたは先手' : 'あなたは後手', G.humanSente ? 'あなたから指します' : '相手から指します');
@@ -1182,7 +1195,7 @@ function goHome() {
 }
 function renderHome() {
   const lad = $('#ladder'); lad.innerHTML = '';
-  for (let lv = 7; lv >= 1; lv--) {
+  for (let lv = LV.length - 1; lv >= 1; lv--) {
     const r = records[lv];
     const b = document.createElement('button');
     b.className = 'rung'; b.dataset.lv = lv;

@@ -173,6 +173,7 @@ function make(m) {
   }
   U_cap[sp++] = cap;
   side ^= 1; h1 ^= ZS1; h2 ^= ZS2;
+  if (NN) nnRecord(m, cap);
 }
 function unmake() {
   sp--;
@@ -189,7 +190,7 @@ function unmake() {
   if (cap) hand[us * 8 + (cap & 7)]--;
   if ((pc & 15) === OU) kingSq[us] = from;
 }
-function makeNull() { U_m[sp] = 0; U_h1[sp] = h1; U_h2[sp] = h2; U_mat[sp] = mat; U_cap[sp++] = 0; side ^= 1; h1 ^= ZS1; h2 ^= ZS2; }
+function makeNull() { U_m[sp] = 0; U_h1[sp] = h1; U_h2[sp] = h2; U_mat[sp] = mat; U_cap[sp++] = 0; side ^= 1; h1 ^= ZS1; h2 ^= ZS2; if (NN) { DN[sp] = 0; DK[sp] = 0; AV[sp * 2] = AV[sp * 2 + 1] = 0; } }
 
 // マス s に、by 側の駒が利いているか
 function attacked(s, by) {
@@ -242,7 +243,141 @@ const ATT_B = [0, 70, 55, 35, 18, 8, 0, 0, 0, 0];
 const DEF_G = [0, 45, 28, 8, 0, 0, 0, 0, 0, 0];
 const KROW = [-70, -60, -50, -40, -30, -20, 0, 18, 25];   // 玉の段（先手から見て、下の段ほど安全）
 let matOnly = false;
+
+/* ---------- 学習済みの見立て（新しい神だけが使う。中身は eval.bin、src	rain	rain.py が作る） ----------
+   手番側と相手側の目線で「自分の玉の位置 × 駒の種類と場所・持ち駒の枚数」の印を集め、小さな NNUE で点数にする。
+   印の番号の付け方は train.py の feats() とまったく同じにすること */
+let nnOn = false, NN = null;
+const TI = [0, 0, 1, 2, 3, 4, 5, 6, -1, 7, 8, 9, 10, 0, 11, 12];   // 駒の種類 → 0〜12（成り駒は7〜12）
+const HOFF = [0, 0, 18, 22, 26, 30, 34, 36];                      // 持ち駒の印の始まり（歩〜飛）
+function loadNN(buf) {
+  const dv = new DataView(buf);
+  if (dv.getUint32(0, true) !== 0x4e4e4853) throw new Error('eval.bin の形がちがう');
+  const H = dv.getInt32(4, true), H2 = dv.getInt32(8, true), NPc = dv.getInt32(12, true), NK = dv.getInt32(16, true);
+  const Q = dv.getFloat32(20, true), SCALE = dv.getFloat32(24, true);
+  let o = 28;
+  const nW1 = NK * NPc * H;
+  const q = new Int16Array(buf.slice(o, o + nW1 * 2)); o += nW1 * 2;
+  const W1 = new Float32Array(nW1);
+  for (let i = 0; i < nW1; i++) W1[i] = q[i] / Q;
+  const f32 = (n) => { const a = new Float32Array(buf.slice(o, o + n * 4)); o += n * 4; return a; };
+  const B1 = f32(H), W2 = f32(2 * H * H2), B2 = f32(H2), W3 = f32(H2), B3 = f32(1);
+  NN = { H, H2, NP: NPc, SCALE, W1, B1, W2, B2, W3, B3: B3[0], acc: new Float32Array(2 * H), z: new Float32Array(H2) };
+  ACC = new Float32Array(1100 * 2 * H); AV.fill(0);
+}
+// P の目線の第1層を acc[off..off+H) に作る
+function nnAcc(P, acc, off) {
+  const { H, NP: NPc, W1, B1 } = NN;
+  for (let j = 0; j < H; j++) acc[off + j] = B1[j];
+  const ks = kingSq[P];
+  let kr = ks ? RANK[ks] : 8, kf = ks ? FILE[ks] : 4;
+  if (P) { kr = 8 - kr; kf = 8 - kf; }
+  const mir = kf > 4;
+  if (mir) kf = 8 - kf;
+  const base = (kr * 5 + kf) * NPc;
+  const add = (pid) => { const w = (base + pid) * H; for (let j = 0; j < H; j++) acc[off + j] += W1[w + j]; };
+  for (let i = 0; i < 81; i++) {
+    const s = SQ[i], p = board[s];
+    if (!p) continue;
+    const t = p & 15, o = (p & GOTE) ? 1 : 0, rel = P ? 1 - o : o;
+    let r = RANK[s], f = FILE[s];
+    if (P) { r = 8 - r; f = 8 - f; }
+    if (mir) f = 8 - f;
+    if (t === OU) { if (rel === 1) add(2106 + r * 9 + f); continue; }
+    add((rel * 13 + TI[t]) * 81 + r * 9 + f);
+  }
+  for (let o = 0; o < 2; o++) {
+    const rel = P ? 1 - o : o;
+    for (let t = 1; t <= 7; t++) {
+      const n = hand[o * 8 + t];
+      for (let c = 0; c < n; c++) add(2187 + rel * 38 + HOFF[t] + c);
+    }
+  }
+}
+/* 速くするしかけ：局面ごと（sp の深さごと）に第1層の結果を取っておき、1手で変わった駒の分だけ足し引きする。
+   変化は make のときに「盤のマスの駒が消えた・現れた」「持ち駒の何枚目が増えた・減った」の形で書き残す。
+   自分の玉が動いたら目線の基準が変わるので、その目線だけ全部数え直す */
+const DMAX = 6;
+const DN = new Uint8Array(1100), DK = new Uint8Array(1100), DE = new Int32Array(1100 * DMAX), DS = new Int8Array(1100 * DMAX);
+const AV = new Uint8Array(1100 * 2);
+let ACC = null;
+function nnRecord(m, cap) {
+  const L = sp, us = side ^ 1, to = m & 255, from = (m >>> 8) & 255, k = L * DMAX;
+  let n = 0;
+  const put = (e, sg) => { DE[k + n] = e; DS[k + n] = sg; n++; };
+  DK[L] = 0;
+  if (!from) {
+    const t = (m >>> 17) & 15;
+    put((1 << 20) | (us << 16) | (t << 8) | hand[us * 8 + t], -1);     // 打ったあとの枚数＝消えた印の番号
+    put((to << 8) | board[to], 1);
+  } else {
+    const pcNew = board[to], pcOld = (m & PROMO) ? pcNew - 8 : pcNew;
+    put((from << 8) | pcOld, -1);
+    if (cap) { put((to << 8) | cap, -1); const bt = cap & 7; put((1 << 20) | (us << 16) | (bt << 8) | (hand[us * 8 + bt] - 1), 1); }
+    put((to << 8) | pcNew, 1);
+    if ((pcOld & 15) === OU) DK[L] = 1 << us;
+  }
+  DN[L] = n;
+  AV[L * 2] = AV[L * 2 + 1] = 0;
+}
+function nnPid(P, e, mir) {
+  if (e & (1 << 20)) {
+    const o = (e >> 16) & 1, t = (e >> 8) & 15, idx = e & 255, rel = P ? 1 - o : o;
+    return 2187 + rel * 38 + HOFF[t] + idx;
+  }
+  const s = e >> 8, p = e & 255, t = p & 15, o = (p & GOTE) ? 1 : 0, rel = P ? 1 - o : o;
+  let r = RANK[s], f = FILE[s];
+  if (P) { r = 8 - r; f = 8 - f; }
+  if (mir) f = 8 - f;
+  if (t === OU) return rel === 1 ? 2106 + r * 9 + f : -1;
+  return (rel * 13 + TI[t]) * 81 + r * 9 + f;
+}
+function nnEnsure(P) {
+  const { H, NP: NPc, W1 } = NN, L = sp;
+  if (AV[L * 2 + P]) return;
+  let k = L;
+  while (k > 0 && !AV[k * 2 + P] && !(DK[k] & (1 << P))) k--;
+  if (!AV[k * 2 + P]) { nnAcc(P, ACC, (L * 2 + P) * H); AV[L * 2 + P] = 1; return; }
+  // k は数えてある局面。k+1〜L の変化を順に足し引きする（その間に自分の玉は動いていない）
+  const ks = kingSq[P];
+  let kr = ks ? RANK[ks] : 8, kf = ks ? FILE[ks] : 4;
+  if (P) { kr = 8 - kr; kf = 8 - kf; }
+  const mir = kf > 4;
+  if (mir) kf = 8 - kf;
+  const base = (kr * 5 + kf) * NPc;
+  for (let j = k + 1; j <= L; j++) {
+    const src = ((j - 1) * 2 + P) * H, dst = (j * 2 + P) * H;
+    ACC.copyWithin(dst, src, src + H);
+    for (let q = 0; q < DN[j]; q++) {
+      const pid = nnPid(P, DE[j * DMAX + q], mir);
+      if (pid < 0) continue;
+      const w = (base + pid) * H;
+      if (DS[j * DMAX + q] > 0) for (let i = 0; i < H; i++) ACC[dst + i] += W1[w + i];
+      else for (let i = 0; i < H; i++) ACC[dst + i] -= W1[w + i];
+    }
+    AV[j * 2 + P] = 1;
+  }
+}
+function nnEval() {
+  const { H, H2, W2, B2, W3, acc, z } = NN;
+  nnEnsure(side); nnEnsure(side ^ 1);
+  const a0 = (sp * 2 + side) * H, a1 = (sp * 2 + (side ^ 1)) * H;
+  for (let j = 0; j < H; j++) { acc[j] = ACC[a0 + j]; acc[H + j] = ACC[a1 + j]; }
+  for (let k = 0; k < H2; k++) z[k] = B2[k];
+  for (let i = 0; i < 2 * H; i++) {
+    let a = acc[i];
+    if (a <= 0) continue;
+    if (a > 1) a = 1;
+    const row = i * H2;
+    for (let k = 0; k < H2; k++) z[k] += a * W2[row + k];
+  }
+  let y = NN.B3;
+  for (let k = 0; k < H2; k++) { let c = z[k]; if (c <= 0) continue; if (c > 1) c = 1; y += c * W3[k]; }
+  return Math.round(y * NN.SCALE);
+}
+
 function evaluate() {
+  if (nnOn) return nnEval();
   if (matOnly) return side ? -mat : mat;
   let sc = mat;
   const k0 = kingSq[0], k1 = kingSq[1];
@@ -526,6 +661,7 @@ const LEVELS = [null,
   { depth: 5, time: 900, mate: 3 },
   { depth: 7, time: 2000, mate: 5 },
   { depth: 40, time: 4000, mate: 7 },
+  { depth: 40, time: 5000, mate: 7, nn: true },
 ];
 
 let spRoot = 0;
@@ -563,8 +699,13 @@ function iterate(maxDepth, ms) {
   return { move: best, value, depth };
 }
 
+function useNN(on) {
+  on = !!on && !!NN;
+  if (on !== nnOn) { nnOn = on; ttClear(); }
+}
 function think(level) {
   const L = LEVELS[level] || LEVELS[7];
+  useNN(L.nn);
   const list = legalList(0);
   if (!list.length) return { move: 0, value: -MATE };
   if (L.random) return { move: list[Math.floor(Math.random() * list.length)], value: 0 };
@@ -597,6 +738,7 @@ function think(level) {
 
 // 振り返り用：この局面の形勢（手番側から見た点）と、AIのおすすめ
 function analyze(ms) {
+  useNN(true);
   const list = legalList(0);
   if (!list.length) return { value: -MATE, best: 0 };
   const r = iterate(7, ms);
@@ -633,6 +775,7 @@ function loadSFEN(sfen) {
     }
   }
   rehash();
+  AV.fill(0);
   base = 0; record();
 }
 // いまの局面を対局の流れに書き足す
@@ -661,6 +804,7 @@ function playUSI(u) {
   const cap = (m >>> 8) & 255 ? board[m & 255] : 0;
   make(m);
   sp = 0;                                           // 対局の手は戻さないので積まない
+  AV[0] = AV[1] = 0;
   base++; record();
   return { capture: cap ? cap & 15 : 0, check: HCK[base] === 1 };
 }
@@ -684,6 +828,29 @@ function status(maxMoves) {
   return { over: false, check: HCK[base] === 1 };
 }
 
+// いまの局面を SFEN の文字に（学習用のデータ作りで使う）
+const SF = ' plnsgbrk', SFP = { 9: '+p', 10: '+l', 11: '+n', 12: '+s', 14: '+b', 15: '+r' };
+function sfen() {
+  const rows = [];
+  for (let r = 0; r < 9; r++) {
+    let row = '', e = 0;
+    for (let f = 0; f < 9; f++) {
+      const p = board[SQ[r * 9 + f]];
+      if (!p) { e++; continue; }
+      if (e) { row += e; e = 0; }
+      const t = p & 15, ch = t >= 9 ? SFP[t] : SF[t];
+      row += p & GOTE ? ch : ch.toUpperCase();
+    }
+    if (e) row += e;
+    rows.push(row);
+  }
+  let hs = '';
+  for (const s of [0, 1]) for (const t of [7, 6, 5, 4, 3, 2, 1]) {
+    const n = hand[s * 8 + t]; if (!n) continue;
+    hs += (n > 1 ? n : '') + (s ? SF[t] : SF[t].toUpperCase());
+  }
+  return rows.join('/') + ' ' + (side ? 'w' : 'b') + ' ' + (hs || '-') + ' 1';
+}
 // 画面に描くための局面。b[段*9+列] = 駒（0なし。先手1〜15、後手は+16）、hand[0|1][駒1〜7]
 function view() {
   const b = new Array(81);
@@ -727,10 +894,11 @@ function isMated() { return legalList(1).length === 0; }
 
 const Engine = {
   START_SFEN, LEVELS, VAL, KNAME,
-  loadSFEN, setup, playUSI, status, view, legalMoves, decode, kifu, mateIn, isMated, inCheck: () => inCheck(),
+  loadSFEN, sfen, setup, playUSI, status, view, legalMoves, decode, kifu, mateIn, isMated, inCheck: () => inCheck(),
   think: (level) => { const r = think(level); return { move: r.move ? toUSI(r.move) : '', value: r.value, depth: r.depth || 0, mate: !!r.mate }; },
   analyze: (ms) => { const r = analyze(ms); return { value: r.value, best: r.best ? toUSI(r.best) : '' }; },
   // 検品用
+  loadNN, hasNN: () => !!NN, _nnEval: () => { const o = nnOn; nnOn = true; const v = evaluate(); nnOn = o; return v; }, _evaluate: () => evaluate(), _nnFull: () => { const sv = AV.slice(); AV.fill(0); const v = nnEval(); AV.set(sv); return v; }, _mv: (i) => MV[i], _legalInts: () => legalList(1), _unmakeAll: () => { while (sp > 0) unmake(); },
   _perft: perft, _gen: gen, _make: make, _unmake: unmake, _hash: () => [h1, h2], _sideToMove: () => side, ttClear,
   get nodes() { return nodes; },
 };
@@ -749,8 +917,17 @@ function perft(d, ply) {
 
 /* ---------- Worker として動いているときの受け口 ---------- */
 if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
-  self.onmessage = (ev) => {
-    const m = ev.data;
+  // 学習済みの見立ては大きい（数MB）ので、必要になったときに1回だけ読み込む
+  let nnTry = null;
+  const ensureNN = () => {
+    if (NN) return Promise.resolve();
+    if (!nnTry) nnTry = fetch('eval.bin').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(loadNN).catch(() => {});
+    return nnTry;
+  };
+  let queue = Promise.resolve();
+  self.onmessage = (ev) => { queue = queue.then(() => handle(ev.data)); };
+  const handle = async (m) => {
+    if ((m.cmd === 'think' && LEVELS[m.level] && LEVELS[m.level].nn) || m.cmd === 'analyze') await ensureNN();
     if (m.cmd === 'think') {
       setup(m.moves, m.sfen);
       self.postMessage({ id: m.id, cmd: 'think', result: Engine.think(m.level) });
